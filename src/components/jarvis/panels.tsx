@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { X, Loader2, Check, Circle, Settings, Wifi, Music, Cloud, Zap, Volume2, Play, Pause, SkipForward, SkipBack, Moon, Eye, Shield, Cpu } from "lucide-react";
+import { X, Loader2, Check, Circle, Settings, Wifi, Music, Cloud, Zap, Volume2, Play, Pause, SkipForward, SkipBack, Moon, Eye, Shield, Cpu, Key, EyeOff, Eye as EyeIcon, Save, Trash2 } from "lucide-react";
 import { useDraggable } from "@/hooks/useDraggable";
 
 function CornerBrackets() { return (<><span className="jarvis-bracket tl" /><span className="jarvis-bracket tr" /><span className="jarvis-bracket bl" /><span className="jarvis-bracket br" /></>); }
@@ -119,6 +119,92 @@ export function PipelinePanel({ onClose }: { onClose: () => void }) {
     </div>);
 }
 
+/* API KEY PROVIDERS */
+const API_PROVIDERS = [
+  { id: "deepseek", label: "DeepSeek", prefix: "sk-", color: "#4de3ff" },
+  { id: "anthropic", label: "Anthropic", prefix: "sk-ant-", color: "#d4a574" },
+  { id: "gemini", label: "Gemini", prefix: "AI", color: "#4285f4" },
+  { id: "openai", label: "OpenAI", prefix: "sk-", color: "#10a37f" },
+  { id: "groq", label: "Groq", prefix: "gsk_", color: "#f55036" },
+  { id: "together", label: "Together AI", prefix: "", color: "#3b82f6" },
+] as const;
+
+function ApiKeyRow({ provider, savedKeys, onSaved }: { provider: (typeof API_PROVIDERS)[number]; savedKeys: Record<string, string>; onSaved: () => void }) {
+  const [inputVal, setInputVal] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
+  const hasKey = !!savedKeys[provider.id];
+
+  const saveKey = async () => {
+    if (!inputVal.trim() && !hasKey) return;
+    setSaving(true);
+    setStatus("idle");
+    try {
+      const res = await fetch("/api/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: provider.id, key: inputVal.trim() }),
+      });
+      if (res.ok) { setStatus("saved"); setInputVal(""); onSaved(); setTimeout(() => setStatus("idle"), 2000); }
+      else { setStatus("error"); }
+    } catch { setStatus("error"); }
+    setSaving(false);
+  };
+
+  const deleteKey = async () => {
+    setSaving(true);
+    try { await fetch(`/api/keys?provider=${provider.id}`, { method: "DELETE" }); onSaved(); } catch { /* ignore */ }
+    setSaving(false);
+  };
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Key size={10} style={{ color: provider.color, opacity: 0.7 }} />
+          <span className="jarvis-readout text-[11px]">{provider.label.toUpperCase()}</span>
+        </div>
+        {hasKey && (
+          <div className="flex items-center gap-1">
+            <span className="jarvis-green text-[9px]">SAVED</span>
+            <button onClick={deleteKey} className="opacity-40 hover:opacity-100 transition-opacity" title="Delete key">
+              <Trash2 size={10} className="jarvis-red" />
+            </button>
+          </div>
+        )}
+      </div>
+      {hasKey && (
+        <div className="flex items-center gap-1">
+          <span className="jarvis-readout-dim text-[10px] font-mono flex-1 truncate">{savedKeys[provider.id]}</span>
+          <button onClick={() => setShowKey(!showKey)} className="opacity-40 hover:opacity-100 transition-opacity">
+            {showKey ? <EyeOff size={10} className="jarvis-readout-dim" /> : <EyeIcon size={10} className="jarvis-readout-dim" />}
+          </button>
+        </div>
+      )}
+      <div className="flex gap-1">
+        <input
+          type="password"
+          placeholder={hasKey ? "Update key..." : `Enter ${provider.label} key...`}
+          value={inputVal}
+          onChange={(e) => setInputVal(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && saveKey()}
+          className="jarvis-key-input flex-1"
+        />
+        <button
+          onClick={saveKey}
+          disabled={saving || (!inputVal.trim() && !hasKey)}
+          className="jarvis-btn flex items-center gap-1"
+          style={{ padding: "4px 10px", fontSize: "10px" }}
+        >
+          {saving ? <Loader2 size={10} className="animate-spin" /> : status === "saved" ? <Check size={10} className="jarvis-green" /> : <Save size={10} />}
+          {status === "saved" ? "OK" : "SAVE"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* SETTINGS */
 interface ToggleRow { key: string; label: string; icon: React.ReactNode }
 function ToggleItem({ item, active, onToggle }: { item: ToggleRow; active: boolean; onToggle: (k: string) => void }) {
@@ -133,27 +219,55 @@ function ToggleItem({ item, active, onToggle }: { item: ToggleRow; active: boole
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const { containerStyle, handlers } = useDraggable({ defaultX: 16, defaultY: 260 });
   const [on, set] = useState({ dark: true, scan: true, anim: true, voice: true, fx: false, save: true });
+  const [showKeys, setShowKeys] = useState(false);
+  const [savedKeys, setSavedKeys] = useState<Record<string, string>>({});
   const toggle = useCallback((k: string) => set((s) => ({ ...s, [k]: !s[k as keyof typeof s] })), []);
+  const loadKeys = useCallback(async () => {
+    try {
+      const res = await fetch("/api/keys");
+      if (res.ok) { const data = await res.json(); setSavedKeys(data.keys || {}); }
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => { loadKeys(); }, [loadKeys]);
   const ifaceRows: ToggleRow[] = [{ key: "dark", label: "DARK MODE", icon: <Moon size={10} /> }, { key: "scan", label: "SCANLINES", icon: <Eye size={10} /> }, { key: "anim", label: "ANIMATIONS", icon: <Zap size={10} /> }];
   const audioRows: ToggleRow[] = [{ key: "voice", label: "VOICE", icon: <Volume2 size={10} /> }, { key: "fx", label: "SOUND FX", icon: <Volume2 size={10} /> }, { key: "save", label: "AUTO SAVE", icon: <Shield size={10} /> }];
   return (
-    <div className="jarvis-panel p-0 z-20" style={{ ...containerStyle, width: 280 }}>
+    <div className="jarvis-panel p-0 z-20" style={{ ...containerStyle, width: 300 }}>
       <CornerBrackets />
-      <PanelHeader title="SETTINGS" handlers={handlers} onClose={onClose} icon={<Settings size={12} />} />
-      <div className="p-3 space-y-3" style={{maxHeight:"calc(100vh - 360px)",overflowY:"auto"}}>
-        <div className="space-y-2"><div className="text-[9px] jarvis-readout-dim uppercase tracking-widest mb-1">Interface</div>
-          {ifaceRows.map((r) => <ToggleItem key={r.key} item={r} active={!!on[r.key as keyof typeof on]} onToggle={toggle} />)}
-        </div>
-        <div style={{borderTop:"1px solid var(--jarvis-panel-border)"}} />
-        <div className="space-y-2"><div className="text-[9px] jarvis-readout-dim uppercase tracking-widest mb-1">Audio</div>
-          {audioRows.map((r) => <ToggleItem key={r.key} item={r} active={!!on[r.key as keyof typeof on]} onToggle={toggle} />)}
-        </div>
-        <div style={{borderTop:"1px solid var(--jarvis-panel-border)"}} />
-        <div className="space-y-3"><div className="text-[9px] jarvis-readout-dim uppercase tracking-widest mb-1">Visual</div>
-          {[["VOLUME",70],["BRIGHTNESS",85],["PARTICLES",60]].map(([l,v]) => (
-            <div key={l}><div className="flex items-center justify-between mb-1"><span className="jarvis-readout text-[11px]">{l}</span><span className="jarvis-primary text-[10px]">{v}%</span></div><input type="range" min="0" max="100" defaultValue={v} className="jarvis-slider" /></div>
-          ))}
-        </div>
+      <PanelHeader title="SETTINGS" handlers={handlers} onClose={onClose} icon={<Settings size={12} />} extra={
+        <button className={"jarvis-btn !text-[9px]" + (showKeys ? " !border-[color:var(--jarvis-primary)]" : "")} onClick={() => setShowKeys(!showKeys)} style={{ padding: "2px 8px" }}>
+          <Key size={9} className="inline mr-1" />KEYS
+        </button>
+      } />
+      <div className="p-3 space-y-3" style={{ maxHeight: "calc(100vh - 360px)", overflowY: "auto" }}>
+        {showKeys ? (
+          <>
+            <div className="text-[9px] jarvis-readout-dim uppercase tracking-widest mb-1">API Keys</div>
+            <div className="space-y-3">
+              {API_PROVIDERS.map((p) => (
+                <ApiKeyRow key={p.id} provider={p} savedKeys={savedKeys} onSaved={loadKeys} />
+              ))}
+            </div>
+            <div style={{ borderTop: "1px solid var(--jarvis-panel-border)" }} />
+            <div className="text-[9px] jarvis-readout-dim">Keys stored locally in <span className="jarvis-readout">data/api-keys.json</span></div>
+          </>
+        ) : (
+          <>
+            <div className="space-y-2"><div className="text-[9px] jarvis-readout-dim uppercase tracking-widest mb-1">Interface</div>
+              {ifaceRows.map((r) => <ToggleItem key={r.key} item={r} active={!!on[r.key as keyof typeof on]} onToggle={toggle} />)}
+            </div>
+            <div style={{ borderTop: "1px solid var(--jarvis-panel-border)" }} />
+            <div className="space-y-2"><div className="text-[9px] jarvis-readout-dim uppercase tracking-widest mb-1">Audio</div>
+              {audioRows.map((r) => <ToggleItem key={r.key} item={r} active={!!on[r.key as keyof typeof on]} onToggle={toggle} />)}
+            </div>
+            <div style={{ borderTop: "1px solid var(--jarvis-panel-border)" }} />
+            <div className="space-y-3"><div className="text-[9px] jarvis-readout-dim uppercase tracking-widest mb-1">Visual</div>
+              {[(["VOLUME",70] as const),(["BRIGHTNESS",85] as const),(["PARTICLES",60] as const)].map(([l,v]) => (
+                <div key={l}><div className="flex items-center justify-between mb-1"><span className="jarvis-readout text-[11px]">{l}</span><span className="jarvis-primary text-[10px]">{v}%</span></div><input type="range" min="0" max="100" defaultValue={v} className="jarvis-slider" /></div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>);
 }
@@ -245,7 +359,7 @@ export function WeatherPanel({ onClose }: { onClose: () => void }) {
 /* ACTIONS */
 export function QuickActionsPanel({ onClose }: { onClose: () => void }) {
   const { containerStyle, handlers } = useDraggable({ defaultX: 232, defaultY: 500 });
-  const actions: {l:string,i:React.ReactNode,c:string}[] = [
+  const actions: {l:string;i:React.ReactNode;c:string}[] = [
     {l:"New Chat",i:<Zap size={14}/>,c:"jarvis-primary"},{l:"Screenshot",i:<Eye size={14}/>,c:"jarvis-green"},
     {l:"Voice",i:<Volume2 size={14}/>,c:"jarvis-amber"},{l:"Fullscreen",i:<Shield size={14}/>,c:"jarvis-primary"},
     {l:"Lock",i:<Settings size={14}/>,c:"jarvis-amber"},{l:"Reset",i:<Cpu size={14}/>,c:"jarvis-red"},
