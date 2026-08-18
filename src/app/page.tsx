@@ -31,7 +31,7 @@ export default function Home() {
 
       {!closed.has("telemetry") && <TelemetryPanel onClose={() => close("telemetry")} />}
       {!closed.has("status") && <StatusPanel onClose={() => close("status")} />}
-      {!closed.has("transcript") && <TranscriptLog onClose={() => close("transcript")} />}
+      {!closed.has("transcript") && <div data-panel="conversation"><TranscriptLog onClose={() => close("transcript")} /></div>}
       {!closed.has("pipeline") && <PipelinePanel onClose={() => close("pipeline")} />}
       {!closed.has("settings") && <SettingsPanel onClose={() => close("settings")} />}
       {!closed.has("network") && <NetworkPanel onClose={() => close("network")} />}

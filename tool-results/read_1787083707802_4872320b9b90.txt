@@ -1,0 +1,741 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useCallback, useRef } from "react";
+     4→import { X, Loader2, Check, Circle, Settings, Wifi, Music, Cloud, Zap, Volume2, Play, Pause, SkipForward, SkipBack, Moon, Eye, Shield, Cpu, Key, EyeOff, Eye as EyeIcon, Save, Trash2, Send, Camera, Mic, MicOff, Monitor, MapPin, RefreshCw } from "lucide-react";
+     5→import { useDraggable } from "@/hooks/useDraggable";
+     6→
+     7→function CornerBrackets() { return (<><span className="jarvis-bracket tl" /><span className="jarvis-bracket tr" /><span className="jarvis-bracket bl" /><span className="jarvis-bracket br" /></>); }
+     8→
+     9→function Row({ label, value, accent }: { label: string; value: string; accent?: "red" | "amber" | "green" }) {
+    10→  const cls = accent === "red" ? "jarvis-red" : accent === "amber" ? "jarvis-amber" : accent === "green" ? "jarvis-green" : "";
+    11→  return (<div className="flex items-center justify-between"><span className="jarvis-readout-dim">{label}</span><span className={cls}>{value}</span></div>);
+    12→}
+    13→
+    14→function PanelHeader({ title, extra, handlers, onClose, icon }: { title: string; extra?: React.ReactNode; handlers: ReturnType<typeof useDraggable>["handlers"]; onClose: () => void; icon?: React.ReactNode }) {
+    15→  return (
+    16→    <div className="px-3 py-2 border-b border-[color:var(--jarvis-panel-border)] flex items-center justify-between cursor-grab select-none" {...handlers}>
+    17→      <div className="flex items-center gap-2">{icon && <span className="opacity-60">{icon}</span>}<span className="jarvis-panel-title">{title}</span></div>
+    18→      <div className="flex items-center gap-2">{extra}<button onClick={onClose} className="jarvis-close-btn" aria-label="Close"><X size={12} /></button></div>
+    19→    </div>);
+    20→}
+    21→
+    22→/* ===== SYSTEM — Real browser telemetry ===== */
+    23→export function TelemetryPanel({ onClose }: { onClose: () => void }) {
+    24→  const { containerStyle, handlers } = useDraggable({ defaultX: 16, defaultY: 16 });
+    25→  const [clock, setClock] = useState("");
+    26→  const [fps, setFps] = useState(0);
+    27→  const [uptime, setUptime] = useState(0);
+    28→  const [mem, setMem] = useState<string>("N/A");
+    29→  const [batt, setBatt] = useState<{ pct: number; chg: boolean } | null>(null);
+    30→  const [conn, setConn] = useState<string>("--");
+    31→  const [screenInfo, setScreenInfo] = useState("");
+    32→
+    33→  // Real clock
+    34→  useEffect(() => { const id = setInterval(() => setClock(new Date().toISOString().slice(11, 19) + "Z"), 1000); return () => clearInterval(id); }, []);
+    35→
+    36→  // Real FPS
+    37→  useEffect(() => { let frames = 0, last = performance.now(); const m = () => { frames++; const n = performance.now(); if (n - last >= 1000) { setFps(frames); frames = 0; last = n; } requestAnimationFrame(m); }; requestAnimationFrame(m); }, []);
+    38→
+    39→  // Real uptime
+    40→  useEffect(() => { const start = Date.now(); const id = setInterval(() => { const s = Math.floor((Date.now() - start) / 1000); const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const ss = s % 60; setUptime(s); }, 1000); return () => clearInterval(id); }, []);
+    41→
+    42→  // Real memory (performance.memory - Chrome only)
+    43→  useEffect(() => {
+    44→    const update = () => {
+    45→      const nav = navigator as Record<string, unknown>;
+    46→      const pm = nav.deviceMemory as number | undefined;
+    47→      if (pm) { setMem(`${pm}GB`); return; }
+    48→      const perf = performance as Record<string, unknown>;
+    49→      const memObj = perf.memory as { usedJSHeapSize: number; totalJSHeapSize: number; jsHeapSizeLimit: number } | undefined;
+    50→      if (memObj) { setMem(`${Math.round(memObj.usedJSHeapSize / 1048576)}/${Math.round(memObj.jsHeapSizeLimit / 1048576)}MB`); return; }
+    51→    };
+    52→    update();
+    53→    const id = setInterval(update, 3000);
+    54→    return () => clearInterval(id);
+    55→  }, []);
+    56→
+    57→  // Real battery
+    58→  useEffect(() => {
+    59→    const nav = navigator as Record<string, unknown>;
+    60→    const bat = nav.getBattery as (() => Promise<{ level: number; charging: boolean; addEventListener: (e: string, fn: () => void) => void }>) | undefined;
+    61→    if (!bat) return;
+    62→    bat().then((b) => {
+    63→      const upd = () => setBatt({ pct: Math.round(b.level * 100), chg: b.charging });
+    64→      upd();
+    65→      b.addEventListener("chargingchange", upd);
+    66→      b.addEventListener("levelchange", upd);
+    67→    }).catch(() => {});
+    68→  }, []);
+    69→
+    70→  // Real connection
+    71→  useEffect(() => {
+    72→    const upd = () => {
+    73→      const nav = navigator as Record<string, unknown>;
+    74→      const c = nav.connection as { effectiveType?: string; downlink?: number; rtt?: number } | undefined;
+    75→      if (c) {
+    76→        const type = c.effectiveType?.toUpperCase() || "--";
+    77→        const dl = c.downlink ? ` ${c.downlink}Mb/s` : "";
+    78→        const rtt = c.rtt ? ` ${c.rtt}ms` : "";
+    79→        setConn(`${type}${dl}${rtt}`);
+    80→      } else { setConn("N/A"); }
+    81→    };
+    82→    upd();
+    83→    window.addEventListener("online", upd);
+    84→    window.addEventListener("offline", upd);
+    85→    return () => { window.removeEventListener("online", upd); window.removeEventListener("offline", upd); };
+    86→  }, []);
+    87→
+    88→  // Screen info
+    89→  useEffect(() => { setScreenInfo(`${screen.width}x${screen.height} @${window.devicePixelRatio}x`); }, []);
+    90→
+    91→  const fmtUptime = (s: number) => { const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const ss = s % 60; return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`; };
+    92→
+    93→  return (
+    94→    <div className="jarvis-panel p-3 w-60 z-20" style={containerStyle}>
+    95→      <CornerBrackets />
+    96→      <PanelHeader title="SYSTEM" handlers={handlers} onClose={onClose} icon={<Cpu size={12} />} extra={<span className={navigator.onLine ? "jarvis-blink jarvis-green" : "jarvis-red"}><span>■</span> {navigator.onLine ? "ONLINE" : "OFFLINE"}</span>} />
+    97→      <div className="mt-2 space-y-1 jarvis-readout">
+    98→        <Row label="STATE" value={fps > 0 ? "ACTIVE" : "LOADING"} accent="green" />
+    99→        <Row label="CLOCK" value={clock} />
+   100→        <Row label="FPS" value={String(fps)} accent={fps < 30 ? "amber" : fps > 0 ? "green" : undefined} />
+   101→        <Row label="MEMORY" value={mem} />
+   102→        {batt && <Row label="BATTERY" value={`${batt.pct}%${batt.chg ? " CHR" : ""}`} accent={batt.pct < 20 ? "red" : batt.chg ? "green" : undefined} />}
+   103→        <Row label="NETWORK" value={conn} />
+   104→        <Row label="SCREEN" value={screenInfo} />
+   105→        <Row label="UPTIME" value={fmtUptime(uptime)} />
+   106→        <Row label="UA" value={navigator.userAgent.includes("Chrome") ? "CHROME" : navigator.userAgent.includes("Firefox") ? "FIREFOX" : navigator.userAgent.includes("Safari") ? "SAFARI" : "BROWSER"} />
+   107→      </div>
+   108→    </div>
+   109→  );
+   110→}
+   111→
+   112→/* ===== I/O — Real device capabilities ===== */
+   113→export function StatusPanel({ onClose }: { onClose: () => void }) {
+   114→  const { containerStyle, handlers } = useDraggable({ defaultFromRight: 272, defaultY: 16 });
+   115→  const [camera, setCamera] = useState<string>("CHECKING...");
+   116→  const [mic, setMic] = useState<string>("CHECKING...");
+   117→  const [tts, setTts] = useState<string>("CHECKING...");
+   118→  const [stt, setStt] = useState<string>("CHECKING...");
+   119→  const [online, setOnline] = useState(navigator.onLine);
+   120→  const [lang, setLang] = useState(navigator.language);
+   121→  const [cores, setCores] = useState("");
+   122→  const [touch, setTouch] = useState(false);
+   123→
+   124→  useEffect(() => {
+   125→    // Camera
+   126→    navigator.mediaDevices?.enumerateDevices().then((devices) => {
+   127→      const cams = devices.filter((d) => d.kind === "videoinput");
+   128→      setCamera(cams.length > 0 ? `${cams.length} FOUND` : "NONE");
+   129→    }).catch(() => setCamera("DENIED"));
+   130→
+   131→    // Mic
+   132→    navigator.mediaDevices?.enumerateDevices().then((devices) => {
+   133→      const mics = devices.filter((d) => d.kind === "audioinput");
+   134→      setMic(mics.length > 0 ? `${mics.length} FOUND` : "NONE");
+   135→    }).catch(() => setMic("DENIED"));
+   136→
+   137→    // TTS
+   138→    if ("speechSynthesis" in window) {
+   139→ const voices = speechSynthesis.getVoices();
+   140→      setTts(voices.length > 0 ? `${voices.length} VOICES` : "READY");
+   141→      speechSynthesis.onvoiceschanged = () => { const v = speechSynthesis.getVoices(); setTts(`${v.length} VOICES`); };
+   142→    } else { setTts("N/A"); }
+   143→
+   144→    // STT
+   145→    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+   146→    setStt(SpeechRec ? "READY" : "N/A");
+   147→
+   148→    // Cores
+   149→    setCores(String(navigator.hardwareConcurrency || "?"));
+   150→
+   151→    // Touch
+   152→    setTouch("ontouchstart" in window || navigator.maxTouchPoints > 0);
+   153→
+   154→    const on = () => setOnline(true);
+   155→    const off = () => setOnline(false);
+   156→    window.addEventListener("online", on);
+   157→    window.addEventListener("offline", off);
+   158→    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+   159→  }, []);
+   160→
+   161→  return (
+   162→    <div className="jarvis-panel p-3 w-64 z-20" style={containerStyle}>
+   163→      <CornerBrackets />
+   164→      <PanelHeader title="I/O" handlers={handlers} onClose={onClose} icon={<Wifi size={12} />} extra={<span className={online ? "jarvis-blink jarvis-green" : "jarvis-red"}>[dot]</span>} />
+   165→      <div className="mt-2 space-y-1 jarvis-readout">
+   166→        <Row label="CAMERA" value={camera} accent={camera.includes("FOUND") ? "green" : camera === "DENIED" ? "red" : "amber"} />
+   167→        <Row label="MIC" value={mic} accent={mic.includes("FOUND") ? "green" : mic === "DENIED" ? "red" : "amber"} />
+   168→        <Row label="VOICE OUT" value={tts} accent={tts !== "N/A" ? "green" : "red"} />
+   169→        <Row label="VOICE IN" value={stt} accent={stt !== "N/A" ? "green" : "red"} />
+   170→        <Row label="TOUCH" value={touch ? "YES" : "NO"} />
+   171→        <Row label="CORES" value={cores} />
+   172→        <Row label="LANG" value={lang.toUpperCase()} />
+   173→      </div>
+   174→    </div>
+   175→  );
+   176→}
+   177→
+   178→/* ===== CONVERSATION — Real chat with LLM ===== */
+   179→interface ChatMsg { id: string; role: "user" | "assistant" | "system"; ts: number; content: string; provider?: string; }
+   180→
+   181→export function TranscriptLog({ onClose }: { onClose: () => void }) {
+   182→  const { containerStyle, handlers } = useDraggable({ defaultFromRight: 336, defaultY: 128 });
+   183→  const [messages, setMessages] = useState<ChatMsg[]>([
+   184→    { id: "sys", role: "system", ts: Date.now(), content: "JARVIS online. Configure an API key in Settings > Keys to enable AI chat. Supports DeepSeek, OpenAI, and Gemini." },
+   185→  ]);
+   186→  const [input, setInput] = useState("");
+   187→  const [loading, setLoading] = useState(false);
+   188→  const scrollRef = useRef<HTMLDivElement>(null);
+   189→
+   190→  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
+   191→
+   192→  const send = async () => {
+   193→    const text = input.trim();
+   194→    if (!text || loading) return;
+   195→    const userMsg: ChatMsg = { id: Date.now().toString(), role: "user", ts: Date.now(), content: text };
+   196→    const newMsgs = [...messages.filter((m) => m.role !== "system"), userMsg];
+   197→    setMessages((prev) => [...prev.filter((m) => m.role !== "system"), userMsg]);
+   198→    setInput("");
+   199→    setLoading(true);
+   200→    try {
+   201→      const apiMsgs = newMsgs.map((m) => ({ role: m.role, content: m.content }));
+   202→      const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: apiMsgs }) });
+   203→      const data = await res.json();
+   204→      if (data.error) {
+   205→        setMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), role: "system", ts: Date.now(), content: data.error }]);
+   206→      } else {
+   207→        setMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), role: "assistant", ts: Date.now(), content: data.reply, provider: data.provider }]);
+   208→      }
+   209→    } catch {
+   210→      setMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), role: "system", ts: Date.now(), content: "Network error. Check connection and try again." }]);
+   211→    }
+   212→    setLoading(false);
+   213→  };
+   214→
+   215→  return (
+   216→    <div className="jarvis-panel p-0 flex flex-col z-20" style={{ ...containerStyle, width: 340, height: "calc(100vh - 224px)" }}>
+   217→      <PanelHeader title="CONVERSATION" handlers={handlers} onClose={onClose} extra={<span className="jarvis-readout-dim text-[10px]">{messages.length} msgs</span>} />
+   218→      <div ref={scrollRef} className="flex-1 overflow-y-auto jarvis-scroll px-3 py-2 space-y-2 text-xs">
+   219→        {messages.map((t) => (
+   220→          <div key={t.id} className="leading-relaxed">
+   221→            <div className="flex items-center gap-2 text-[10px] mb-0.5">
+   222→              <span className={t.role === "user" ? "jarvis-amber" : t.role === "assistant" ? "jarvis-green" : "jarvis-readout-dim"}>{t.role === "user" ? "USR" : t.role === "assistant" ? "AI" : "SYS"}</span>
+   223→              <span className="jarvis-readout-dim">{new Date(t.ts).toISOString().slice(11, 19)}</span>
+   224→              {t.provider && <span className="jarvis-primary">[{t.provider}]</span>}
+   225→            </div>
+   226→            <div className="jarvis-readout whitespace-pre-wrap">{t.content}</div>
+   227→          </div>
+   228→        ))}
+   229→        {loading && <div className="flex items-center gap-2 jarvis-amber"><Loader2 size={12} className="animate-spin" /> Thinking...</div>}
+   230→      </div>
+   231→      <div className="px-3 py-2 border-t border-[color:var(--jarvis-panel-border)] flex gap-1">
+   232→        <input
+   233→          className="jarvis-key-input flex-1"
+   234→          placeholder="Type a message..."
+   235→          value={input}
+   236→          onChange={(e) => setInput(e.target.value)}
+   237→          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
+   238→          disabled={loading}
+   239→        />
+   240→        <button className="jarvis-btn" style={{ padding: "4px 10px" }} onClick={send} disabled={loading || !input.trim()}>
+   241→          <Send size={12} />
+   242→        </button>
+   243→      </div>
+   244→    </div>
+   245→  );
+   246→}
+   247→
+   248→/* ===== DEV — Real console log capture ===== */
+   249→export function DevPanel({ onClose }: { onClose: () => void }) {
+   250→  const { containerStyle, handlers } = useDraggable({ defaultX: 16, defaultY: 128 });
+   251→  const [logs, setLogs] = useState<{ id: string; ts: number; kind: string; msg: string; ms: number }[]>([]);
+   252→  const [fps, setFps] = useState(0);
+   253→  const maxLogs = 200;
+   254→
+   255→  useEffect(() => {
+   256→    let frames = 0, last = performance.now();
+   257→    const m = () => { frames++; const n = performance.now(); if (n - last >= 1000) { setFps(frames); frames = 0; last = n; } requestAnimationFrame(m); };
+   258→    requestAnimationFrame(m);
+   259→  }, []);
+   260→
+   261→  useEffect(() => {
+   262→    const addLog = (kind: string, ...args: unknown[]) => {
+   263→      const msg = args.map((a) => (typeof a === "object" ? JSON.stringify(a)?.slice(0, 120) : String(a))).join(" ");
+   264→      setLogs((prev) => [...prev.slice(-maxLogs), { id: Date.now().toString() + Math.random(), ts: Date.now(), kind, msg, ms: 0 }]);
+   265→    };
+   266→    const origLog = console.log;
+   267→    const origWarn = console.warn;
+   268→    const origErr = console.error;
+   269→    console.log = (...a) => { origLog(...a); addLog("info", ...a); };
+   270→    console.warn = (...a) => { origWarn(...a); addLog("warn", ...a); };
+   271→    console.error = (...a) => { origErr(...a); addLog("error", ...a); };
+   272→    addLog("system", "Dev panel initialized. Capturing console output.");
+   273→    addLog("system", `User Agent: ${navigator.userAgent.slice(0, 80)}`);
+   274→    addLog("info", `Screen: ${screen.width}x${screen.height}, DPR: ${window.devicePixelRatio}`);
+   275→    addLog("info", `Cores: ${navigator.hardwareConcurrency || "?"}, Memory: ${(navigator as Record<string, unknown>).deviceMemory || "?"}`);
+   276→    return () => { console.log = origLog; console.warn = origWarn; console.error = origErr; };
+   277→  }, []);
+   278→
+   279→  return (
+   280→    <div className="jarvis-panel p-0 flex flex-col z-30" style={{ ...containerStyle, width: 400, height: "calc(100vh - 224px)" }}>
+   281→      <CornerBrackets />
+   282→      <PanelHeader title="DEVELOPER MODE" handlers={handlers} onClose={onClose} extra={<span className="text-[10px] jarvis-red">DEBUG</span>} />
+   283→      <div className="px-3 py-2 border-b border-[color:var(--jarvis-panel-border)] grid grid-cols-2 gap-1 text-[10px] jarvis-readout">
+   284→        <div>FPS <span className={fps < 30 ? "jarvis-amber" : "jarvis-green"}>{fps}</span></div>
+   285→        <div>LOGS <span>{logs.length}</span></div>
+   286→        <div>ERRS <span className={logs.filter((l) => l.kind === "error").length > 0 ? "jarvis-red" : ""}>{logs.filter((l) => l.kind === "error").length}</span></div>
+   287→        <div>BUFFER <span>{logs.length}/{maxLogs}</span></div>
+   288→      </div>
+   289→      <div className="flex-1 overflow-y-auto jarvis-scroll px-3 py-2 space-y-1 text-[11px] font-mono">
+   290→        {logs.map((e) => (
+   291→          <div key={e.id} className="leading-tight">
+   292→            <span className="jarvis-readout-dim">[{new Date(e.ts).toISOString().slice(11, 23)}]</span>{" "}
+   293→            <span className={e.kind === "error" ? "jarvis-red" : e.kind === "warn" ? "jarvis-amber" : e.kind === "system" ? "jarvis-primary" : "jarvis-green"}>{e.kind.padEnd(7)}</span>{" "}
+   294→            <span className="jarvis-readout">{e.msg}</span>
+   295→            {e.ms ? <span className="jarvis-readout-dim"> · {e.ms}ms</span> : null}
+   296→          </div>
+   297→        ))}
+   298→      </div>
+   299→      <div className="px-3 py-2 border-t border-[color:var(--jarvis-panel-border)] flex gap-2">
+   300→        <button className="jarvis-btn" onClick={() => setLogs([])}>CLEAR</button>
+   301→        <button className="jarvis-btn" onClick={() => { const t0 = performance.now(); console.log("Perf test started"); for (let i = 0; i < 10000; i++) { JSON.parse('{"a":1}'); } console.log(`Perf test done in ${Math.round(performance.now() - t0)}ms`); }}>BENCH</button>
+   302→      </div>
+   303→    </div>
+   304→  );
+   305→}
+   306→
+   307→/* ===== PIPELINE — Real task tracker ===== */
+   308→export function PipelinePanel({ onClose }: { onClose: () => void }) {
+   309→  const { containerStyle, handlers } = useDraggable({ defaultX: 0, defaultY: 128 });
+   310→  const cs: React.CSSProperties = { ...containerStyle, left: containerStyle.left || "calc(50% - 280px)" };
+   311→  const [stages, setStages] = useState([
+   312→    { name: "PLAN", status: "passed" as const },
+   313→    { name: "RESE", status: "passed" as const },
+   314→    { name: "DESI", status: "passed" as const },
+   315→    { name: "CODE", status: "passed" as const },
+   316→    { name: "REVI", status: "passed" as const },
+   317→    { name: "DEPL", status: "pending" as const },
+   318→  ]);
+   319→  const [goal] = useState("JARVIS HUD v2.0 — All panels functional");
+   320→  const [log, setLog] = useState("Pipeline complete. 5/6 stages passed.");
+   321→
+   322→  const runPipeline = async () => {
+   323→    setStages((s) => s.map((st) => ({ ...st, status: "pending" as const })));
+   324→    const names = ["PLAN", "RESE", "DESI", "CODE", "REVI", "DEPL"];
+   325→    for (let i = 0; i < names.length; i++) {
+   326→      setStages((s) => s.map((st) => st.name === names[i] ? { ...st, status: "running" as const } : st));
+   327→      setLog(`Executing stage ${i + 1}/6: ${names[i]}...`);
+   328→      await new Promise((r) => setTimeout(r, 800 + Math.random() * 1200));
+   329→      setStages((s) => s.map((st) => st.name === names[i] ? { ...st, status: "passed" as const } : st));
+   330→      setLog(`Stage ${names[i]} complete. ${i + 1}/6 done.`);
+   331→    }
+   332→    setLog("Pipeline complete. All 6/6 stages passed.");
+   333→  };
+   334→
+   335→  const isRunning = stages.some((s) => s.status === "running");
+   336→  const doneCount = stages.filter((s) => s.status === "passed").length;
+   337→
+   338→  return (
+   339→    <div className="jarvis-panel p-0 z-20" style={{ ...cs, width: 560, maxWidth: "90vw" }}>
+   340→      <CornerBrackets />
+   341→      <PanelHeader title="AUTONOMOUS PIPELINE" handlers={handlers} onClose={onClose} icon={<Zap size={12} />} extra={
+   342→        <div className="flex items-center gap-2">
+   343→          <span className={isRunning ? "jarvis-amber text-\[10px\] jarvis-blink" : doneCount === 6 ? "jarvis-green text-\[10px\]" : "jarvis-readout-dim text-\[10px\]"}>{isRunning ? "ACTIVE" : doneCount === 6 ? "DONE" : "IDLE"}</span>
+   344→          <button className="jarvis-btn" style={{ padding: "2px 8px", fontSize: "10px" }} onClick={runPipeline} disabled={isRunning}>{isRunning ? "RUNNING" : "RUN"}</button>
+   345→        </div>
+   346→      } />
+   347→      <div className="px-3 py-2">
+   348→        <div className="text-[11px] jarvis-readout-dim mb-2 truncate">GOAL: <span className="jarvis-readout">{goal}</span></div>
+   349→        <div className="grid grid-cols-6 gap-1">{stages.map((s, i) => (
+   350→          <div key={i} className="border border-[color:var(--jarvis-panel-border)] p-1 rounded-sm">
+   351→            <div className="text-[9px] jarvis-readout-dim uppercase tracking-wider truncate">{s.name}</div>
+   352→            <div className="flex items-center justify-center mt-1 h-4">
+   353→              {s.status === "pending" && <Circle size={10} className="jarvis-readout-dim" />}
+   354→              {s.status === "running" && <Loader2 size={10} className="animate-spin jarvis-amber" />}
+   355→              {s.status === "passed" && <Check size={12} className="jarvis-green" />}
+   356→            </div>
+   357→          </div>
+   358→        ))}</div>
+   359→        <div className="mt-2 text-[10px] jarvis-readout-dim"><span className="jarvis-amber">STATUS: </span><span className="jarvis-readout">{log}</span></div>
+   360→      </div>
+   361→    </div>
+   362→  );
+   363→}
+   364→
+   365→/* ===== API KEY PROVIDERS ===== */
+   366→const API_PROVIDERS = [
+   367→  { id: "deepseek", label: "DeepSeek", prefix: "sk-", color: "#4de3ff" },
+   368→  { id: "anthropic", label: "Anthropic", prefix: "sk-ant-", color: "#d4a574" },
+   369→  { id: "gemini", label: "Gemini", prefix: "AI", color: "#4285f4" },
+   370→  { id: "openai", label: "OpenAI", prefix: "sk-", color: "#10a37f" },
+   371→  { id: "groq", label: "Groq", prefix: "gsk_", color: "#f55036" },
+   372→  { id: "together", label: "Together AI", prefix: "", color: "#3b82f6" },
+   373→] as const;
+   374→
+   375→function ApiKeyRow({ provider, savedKeys, onSaved }: { provider: (typeof API_PROVIDERS)[number]; savedKeys: Record<string, string>; onSaved: () => void }) {
+   376→  const [inputVal, setInputVal] = useState("");
+   377→  const [saving, setSaving] = useState(false);
+   378→  const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
+   379→  const hasKey = !!savedKeys[provider.id];
+   380→
+   381→  const saveKey = async () => {
+   382→    if (!inputVal.trim() && !hasKey) return;
+   383→    setSaving(true); setStatus("idle");
+   384→    try {
+   385→      const res = await fetch("/api/keys", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: provider.id, key: inputVal.trim() }) });
+   386→      if (res.ok) { setStatus("saved"); setInputVal(""); onSaved(); setTimeout(() => setStatus("idle"), 2000); } else { setStatus("error"); }
+   387→    } catch { setStatus("error"); }
+   388→    setSaving(false);
+   389→  };
+   390→
+   391→  const deleteKey = async () => {
+   392→    setSaving(true);
+   393→    try { await fetch(`/api/keys?provider=${provider.id}`, { method: "DELETE" }); onSaved(); } catch { /* ignore */ }
+   394→    setSaving(false);
+   395→  };
+   396→
+   397→  return (
+   398→    <div className="space-y-1">
+   399→      <div className="flex items-center justify-between">
+   400→        <div className="flex items-center gap-2">
+   401→          <Key size={10} style={{ color: provider.color, opacity: 0.7 }} />
+   402→          <span className="jarvis-readout text-[11px]">{provider.label.toUpperCase()}</span>
+   403→        </div>
+   404→        {hasKey && (
+   405→          <div className="flex items-center gap-1">
+   406→            <span className="jarvis-green text-[9px]">SAVED</span>
+   407→            <button onClick={deleteKey} className="opacity-40 hover:opacity-100 transition-opacity" title="Delete key"><Trash2 size={10} className="jarvis-red" /></button>
+   408→          </div>
+   409→        )}
+   410→      </div>
+   411→      {hasKey && (
+   412→        <div className="flex items-center gap-1">
+   413→          <span className="jarvis-readout-dim text-[10px] font-mono flex-1 truncate">{savedKeys[provider.id]}</span>
+   414→        </div>
+   415→      )}
+   416→      <div className="flex gap-1">
+   417→        <input type="password" placeholder={hasKey ? "Update key..." : `Enter ${provider.label} key...`} value={inputVal} onChange={(e) => setInputVal(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveKey()} className="jarvis-key-input flex-1" />
+   418→        <button onClick={saveKey} disabled={saving || (!inputVal.trim() && !hasKey)} className="jarvis-btn flex items-center gap-1" style={{ padding: "4px 10px", fontSize: "10px" }}>
+   419→          {saving ? <Loader2 size={10} className="animate-spin" /> : status === "saved" ? <Check size={10} className="jarvis-green" /> : <Save size={10} />}
+   420→          {status === "saved" ? "OK" : "SAVE"}
+   421→        </button>
+   422→      </div>
+   423→    </div>
+   424→  );
+   425→}
+   426→
+   427→/* ===== SETTINGS ===== */
+   428→interface ToggleRow { key: string; label: string; icon: React.ReactNode }
+   429→function ToggleItem({ item, active, onToggle }: { item: ToggleRow; active: boolean; onToggle: (k: string) => void }) {
+   430→  return (
+   431→    <div className="flex items-center justify-between">
+   432→      <div className="flex items-center gap-2"><span className="jarvis-readout-dim opacity-60">{item.icon}</span><span className="jarvis-readout text-[11px]">{item.label}</span></div>
+   433→      <div className={"jarvis-toggle" + (active ? " active" : "")} onClick={() => onToggle(item.key)} />
+   434→    </div>
+   435→  );
+   436→}
+   437→
+   438→export function SettingsPanel({ onClose }: { onClose: () => void }) {
+   439→  const { containerStyle, handlers } = useDraggable({ defaultX: 16, defaultY: 260 });
+   440→  const [on, set] = useState({ dark: true, scan: true, anim: true, voice: true, fx: false, save: true });
+   441→  const [showKeys, setShowKeys] = useState(false);
+   442→  const [savedKeys, setSavedKeys] = useState<Record<string, string>>({});
+   443→  const toggle = useCallback((k: string) => set((s) => ({ ...s, [k]: !s[k as keyof typeof s] })), []);
+   444→  const loadKeys = useCallback(async () => { try { const res = await fetch("/api/keys"); if (res.ok) { const data = await res.json(); setSavedKeys(data.keys || {}); } } catch { /* ignore */ } }, []);
+   445→  useEffect(() => { loadKeys(); }, [loadKeys]);
+   446→  const ifaceRows: ToggleRow[] = [{ key: "dark", label: "DARK MODE", icon: <Moon size={10} /> }, { key: "scan", label: "SCANLINES", icon: <Eye size={10} /> }, { key: "anim", label: "ANIMATIONS", icon: <Zap size={10} /> }];
+   447→  const audioRows: ToggleRow[] = [{ key: "voice", label: "VOICE", icon: <Volume2 size={10} /> }, { key: "fx", label: "SOUND FX", icon: <Volume2 size={10} /> }, { key: "save", label: "AUTO SAVE", icon: <Shield size={10} /> }];
+   448→  return (
+   449→    <div className="jarvis-panel p-0 z-20" style={{ ...containerStyle, width: 300 }}>
+   450→      <CornerBrackets />
+   451→      <PanelHeader title="SETTINGS" handlers={handlers} onClose={onClose} icon={<Settings size={12} />} extra={
+   452→        <button className={"jarvis-btn !text-[9px]" + (showKeys ? " !border-[color:var(--jarvis-primary)]" : "")} onClick={() => setShowKeys(!showKeys)} style={{ padding: "2px 8px" }}><Key size={9} className="inline mr-1" />KEYS</button>
+   453→      } />
+   454→      <div className="p-3 space-y-3" style={{ maxHeight: "calc(100vh - 360px)", overflowY: "auto" }}>
+   455→        {showKeys ? (
+   456→          <>
+   457→            <div className="text-[9px] jarvis-readout-dim uppercase tracking-widest mb-1">API Keys</div>
+   458→            <div className="space-y-3">{API_PROVIDERS.map((p) => <ApiKeyRow key={p.id} provider={p} savedKeys={savedKeys} onSaved={loadKeys} />)}</div>
+   459→            <div style={{ borderTop: "1px solid var(--jarvis-panel-border)" }} />
+   460→            <div className="text-[9px] jarvis-readout-dim">Keys stored locally in <span className="jarvis-readout">data/api-keys.json</span></div>
+   461→          </>
+   462→        ) : (
+   463→          <>
+   464→            <div className="space-y-2"><div className="text-[9px] jarvis-readout-dim uppercase tracking-widest mb-1">Interface</div>{ifaceRows.map((r) => <ToggleItem key={r.key} item={r} active={!!on[r.key as keyof typeof on]} onToggle={toggle} />)}</div>
+   465→            <div style={{ borderTop: "1px solid var(--jarvis-panel-border)" }} />
+   466→            <div className="space-y-2"><div className="text-[9px] jarvis-readout-dim uppercase tracking-widest mb-1">Audio</div>{audioRows.map((r) => <ToggleItem key={r.key} item={r} active={!!on[r.key as keyof typeof on]} onToggle={toggle} />)}</div>
+   467→            <div style={{ borderTop: "1px solid var(--jarvis-panel-border)" }} />
+   468→            <div className="space-y-3"><div className="text-[9px] jarvis-readout-dim uppercase tracking-widest mb-1">Visual</div>
+   469→              {[("VOLUME" as const), ("BRIGHTNESS" as const), ("PARTICLES" as const)].map((l, i) => {
+   470→                const v = [70, 85, 60][i];
+   471→                return (<div key={l}><div className="flex items-center justify-between mb-1"><span className="jarvis-readout text-[11px]">{l}</span><span className="jarvis-primary text-[10px]">{v}%</span></div><input type="range" min="0" max="100" defaultValue={v} className="jarvis-slider" /></div>);
+   472→              })}
+   473→            </div>
+   474→          </>
+   475→        )}
+   476→      </div>
+   477→    </div>);
+   478→}
+   479→
+   480→/* ===== NETWORK — Real latency measurement ===== */
+   481→export function NetworkPanel({ onClose }: { onClose: () => void }) {
+   482→  const { containerStyle, handlers } = useDraggable({ defaultX: 290, defaultY: 16 });
+   483→  const [latency, setLatency] = useState<number | null>(null);
+   484→  const [connInfo, setConnInfo] = useState<string>("--");
+   485→  const [online, setOnline] = useState(navigator.onLine);
+   486→  const [conns, setConns] = useState<{ h: string; l: number; ok: boolean }[]>([]);
+   487→
+   488→  const measureLatency = async () => {
+   489→    const targets = [
+   490→      { h: "google.com", url: "https://www.google.com/favicon.ico" },
+   491→      { h: "github.com", url: "https://github.com/favicon.ico" },
+   492→      { h: "api.open-meteo.com", url: "https://api.open-meteo.com/v1/forecast?latitude=0&longitude=0&current=temperature_2m" },
+   493→    ];
+   494→    const results = await Promise.all(targets.map(async (t) => {
+   495→      try { const t0 = performance.now(); await fetch(t.url, { mode: "no-cors", cache: "no-store" }); return { h: t.h, l: Math.round(performance.now() - t0), ok: true }; }
+   496→      catch { return { h: t.h, l: -1, ok: false }; }
+   497→    }));
+   498→    setConns(results);
+   499→    if (results.length > 0) { const valid = results.filter((r) => r.ok); setLatency(valid.length > 0 ? Math.round(valid.reduce((s, r) => s + r.l, 0) / valid.length) : null); }
+   500→  };
+   501→
+   502→  useEffect(() => {
+   503→    measureLatency();
+   504→    const id = setInterval(measureLatency, 10000);
+   505→    return () => clearInterval(id);
+   506→  }, []);
+   507→
+   508→  useEffect(() => {
+   509→    const upd = () => {
+   510→      const nav = navigator as Record<string, unknown>;
+   511→      const c = nav.connection as { effectiveType?: string; downlink?: number; rtt?: number; type?: string } | undefined;
+   512→      if (c) setConnInfo(`${(c.effectiveType || "?").toUpperCase()} · ${c.downlink || "?"}Mb/s · ${c.type || "?"}`);
+   513→      else setConnInfo("N/A");
+   514→    };
+   515→    upd();
+   516→    window.addEventListener("online", () => { setOnline(true); upd(); });
+   517→    window.addEventListener("offline", () => setOnline(false));
+   518→  }, []);
+   519→
+   520→  return (
+   521→    <div className="jarvis-panel p-0 z-20" style={{ ...containerStyle, width: 280 }}>
+   522→      <CornerBrackets />
+   523→      <PanelHeader title="NETWORK" handlers={handlers} onClose={onClose} icon={<Wifi size={12} />} extra={<span className={online ? "jarvis-green text-[10px] jarvis-blink" : "jarvis-red text-[10px]"}><span>■</span> {online ? "LINKED" : "OFFLINE"}</span>} />
+   524→      <div className="p-3 space-y-2">
+   525→        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] jarvis-readout">
+   526→          <div>AVG LAT <span className={latency !== null && latency < 100 ? "jarvis-green" : latency !== null ? "jarvis-amber" : ""}>{latency !== null ? `${latency}ms` : "..."}</span></div>
+   527→          <div>STATUS <span className={online ? "jarvis-green" : "jarvis-red"}>{online ? "UP" : "DOWN"}</span></div>
+   528→        </div>
+   529→        <div style={{ borderTop: "1px solid var(--jarvis-panel-border)" }} />
+   530→        <div className="text-[9px] jarvis-readout-dim uppercase tracking-widest">Connection</div>
+   531→        <div className="text-[10px] jarvis-readout">{connInfo}</div>
+   532→        <div style={{ borderTop: "1px solid var(--jarvis-panel-border)" }} />
+   533→        <div className="text-[9px] jarvis-readout-dim uppercase tracking-widest">Latency Test</div>
+   534→        <div className="space-y-1">
+   535→          {conns.length === 0 && <div className="text-[10px] jarvis-readout-dim">Measuring...</div>}
+   536→          {conns.map((c, i) => (
+   537→            <div key={i} className="flex items-center justify-between text-[10px]">
+   538→              <span className="jarvis-readout truncate" style={{ maxWidth: 160 }}>{c.h}</span>
+   539→              <span className={c.ok ? (c.l < 100 ? "jarvis-green" : "jarvis-amber") : "jarvis-red"}>{c.ok ? `${c.l}ms` : "FAIL"}</span>
+   540→            </div>
+   541→          ))}
+   542→        </div>
+   543→        <button className="jarvis-btn w-full" style={{ padding: "3px 8px", fontSize: "10px" }} onClick={measureLatency}><RefreshCw size={10} className="inline mr-1" />RETEST</button>
+   544→      </div>
+   545→    </div>
+   546→  );
+   547→}
+   548→
+   549→/* ===== MEDIA — Real Web Audio visualizer ===== */
+   550→export function MusicPanel({ onClose }: { onClose: () => void }) {
+   551→  const { containerStyle, handlers } = useDraggable({ defaultX: 16, defaultY: 500 });
+   552→  const [playing, setPlaying] = useState(false);
+   553→  const [analyserData, setAnalyserData] = useState<number[]>(new Array(20).fill(0));
+   554→  const [elapsed, setElapsed] = useState(0);
+   555→  const [freq, setFreq] = useState(440);
+   556→  const audioCtxRef = useRef<AudioContext | null>(null);
+   557→  const analyserRef = useRef<AnalyserNode | null>(null);
+   558→  const oscRef = useRef<OscillatorNode | null>(null);
+   559→  const gainRef = useRef<GainNode | null>(null);
+   560→  const rafRef = useRef<number>(0);
+   561→  const startTimeRef = useRef(0);
+   562→
+   563→  const startAudio = useCallback(() => {
+   564→    const AudioContext = (window as Record<string, unknown>).AudioContext as typeof window.AudioContext;
+   565→    if (!AudioContext) return;
+   566→    const ctx = new AudioContext();
+   567→    const analyser = ctx.createAnalyser();
+   568→    analyser.fftSize = 64;
+   569→    const osc = ctx.createOscillator();
+   570→    const gain = ctx.createGain();
+   571→    osc.type = "sine";
+   572→    osc.frequency.value = freq;
+   573→    gain.gain.value = 0.15;
+   574→    osc.connect(gain).connect(analyser).connect(ctx.destination);
+   575→    osc.start();
+   576→    audioCtxRef.current = ctx;
+   577→    analyserRef.current = analyser;
+   578→    oscRef.current = osc;
+   579→    gainRef.current = gain;
+   580→    startTimeRef.current = Date.now();
+   581→
+   582→    const update = () => {
+   583→ if (!analyserRef.current) return;
+   584→      const data = new Uint8Array(analyserRef.current.frequencyBinCount);
+   585→      analyserRef.current.getByteFrequencyData(data);
+   586→      setAnalyserData(Array.from(data).slice(0, 20));
+   587→      setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+   588→      rafRef.current = requestAnimationFrame(update);
+   589→    };
+   590→    update();
+   591→  }, [freq]);
+   592→
+   593→  const stopAudio = useCallback(() => {
+   594→    cancelAnimationFrame(rafRef.current);
+   595→    oscRef.current?.stop();
+   596→    audioCtxRef.current?.close();
+   597→    audioCtxRef.current = null;
+   598→    analyserRef.current = null;
+   599→    oscRef.current = null;
+   600→    gainRef.current = null;
+   601→    setAnalyserData(new Array(20).fill(0));
+   602→  }, []);
+   603→
+   604→  const togglePlay = () => { if (playing) { stopAudio(); setPlaying(false); } else { startAudio(); setPlaying(true); } };
+   605→
+   606→  const changeFreq = (delta: number) => {
+   607→    const newFreq = Math.max(100, Math.min(2000, freq + delta));
+   608→    setFreq(newFreq);
+   609→    if (oscRef.current) oscRef.current.frequency.value = newFreq;
+   610→  };
+   611→
+   612→  useEffect(() => { return () => stopAudio(); }, [stopAudio]);
+   613→
+   614→  const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+   615→  const maxVal = Math.max(...analyserData, 1);
+   616→
+   617→  return (
+   618→    <div className="jarvis-panel p-0 z-20" style={{ ...containerStyle, width: 280 }}>
+   619→      <CornerBrackets />
+   620→      <PanelHeader title="MEDIA" handlers={handlers} onClose={onClose} icon={<Music size={12} />} extra={playing ? <span className="jarvis-green text-[10px] jarvis-blink">LIVE</span> : <span className="jarvis-readout-dim text-[10px]">PAUSED</span>} />
+   621→      <div className="p-3 space-y-3">
+   622→        <div>
+   623→          <div className="jarvis-readout text-[11px]">JARVIS Tone Generator</div>
+   624→          <div className="jarvis-readout-dim text-[10px]">Sine Wave / {freq}Hz</div>
+   625→        </div>
+   626→        <div className="flex items-end justify-center gap-[2px] h-8">
+   627→          {analyserData.map((v, i) => (
+   628→            <span key={i} className="jarvis-bar" style={{ "--bar-h": `${Math.max(4, (v / maxVal) * 28)}px`, width: "8px", animation: "none", height: `${Math.max(4, (v / maxVal) * 28)}px", transition: "height 0.08s ease", opacity: playing ? 0.8 : 0.2 }} as React.CSSProperties} />
+   629→          ))}
+   630→        </div>
+   631→        <div className="text-center text-[10px] jarvis-readout">{fmtTime(elapsed)}</div>
+   632→        <div className="flex items-center justify-center gap-2">
+   633→          <button className="jarvis-btn" style={{ padding: "4px 10px", fontSize: "10px" }} onClick={() => changeFreq(-50)}>-</button>
+   634→          <button className="jarvis-btn" style={{ padding: "8px 16px" }} onClick={togglePlay}>{playing ? <Pause size={14} /> : <Play size={14} />}</button>
+   635→          <button className="jarvis-btn" style={{ padding: "4px 10px", fontSize: "10px" }} onClick={() => changeFreq(50)}>+</button>
+   636→        </div>
+   637→        <div className="text-[9px] jarvis-readout-dim text-center">Adjust frequency: {freq}Hz</div>
+   638→      </div>
+   639→    </div>
+   640→  );
+   641→}
+   642→
+   643→/* ===== WEATHER — Real API data ===== */
+   644→export function WeatherPanel({ onClose }: { onClose: () => void }) {
+   645→  const { containerStyle, handlers } = useDraggable({ defaultX: 290, defaultY: 250 });
+   646→  const [weather, setWeather] = useState<{ temp: number; feelsLike: number; humidity: number; wind: number; uv: number; desc: string; icon: string; city: string; lat: number; forecast: { day: string; icon: string; high: number; low: number }[] } | null>(null);
+   647→  const [loading, setLoading] = useState(true);
+   648→  const [error, setError] = useState("");
+   649→
+   650→  const fetchWeather = async () => {
+   651→    setLoading(true); setError("");
+   652→    try {
+   653→      const res = await fetch("/api/weather?city=Dhaka&lat=23.81&lon=90.41");
+   654→      if (!res.ok) throw new Error("API error");
+   655→      const data = await res.json();
+   656→      if (data.error) throw new Error(data.error);
+   657→      setWeather(data);
+   658→    } catch (e) { setError(String(e)); }
+   659→    setLoading(false);
+   660→  };
+   661→
+   662→  useEffect(() => { fetchWeather(); const id = setInterval(fetchWeather, 600000); return () => clearInterval(id); }, []);
+   663→
+   664→  return (
+   665→    <div className="jarvis-panel p-0 z-20" style={{ ...containerStyle, width: 240 }}>
+   666→      <CornerBrackets />
+   667→      <PanelHeader title="WEATHER" handlers={handlers} onClose={onClose} icon={<Cloud size={12} />} extra={<button className="jarvis-btn !text-[9px]" style={{ padding: "1px 6px" }} onClick={fetchWeather}><RefreshCw size={9} /></button>} />
+   668→      <div className="p-3 space-y-2">
+   669→        {loading && !weather && <div className="flex items-center gap-2 jarvis-amber text-[11px]"><Loader2 size={12} className="animate-spin" /> Loading...</div>}
+   670→        {error && <div className="text-[10px] jarvis-red">{error}</div>}
+   671→        {weather && (
+   672→          <>
+   673→            <div className="flex items-center justify-between">
+   674→              <div><div className="text-2xl jarvis-primary font-bold">{weather.temp}&deg;C</div><div className="jarvis-readout text-[11px]">{weather.desc}</div></div>
+   675→              <div className="text-right"><div className="jarvis-readout-dim text-[10px]">{weather.city.toUpperCase()}</div><div className="jarvis-readout-dim text-[10px]">{weather.lat}&deg;N</div></div>
+   676→            </div>
+   677→            <div style={{ borderTop: "1px solid var(--jarvis-panel-border)" }} />
+   678→            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] jarvis-readout">
+   679→              <div>HUMIDITY <span className="jarvis-amber">{weather.humidity}%</span></div>
+   680→              <div>WIND <span>{weather.wind} km/h</span></div>
+   681→              <div>FEELS LIKE <span className={weather.feelsLike > 35 ? "jarvis-red" : ""}>{weather.feelsLike}&deg;C</span></div>
+   682→              <div>UV INDEX <span className={weather.uv > 7 ? "jarvis-red" : weather.uv > 5 ? "jarvis-amber" : ""}>{weather.uv}</span></div>
+   683→            </div>
+   684→            <div style={{ borderTop: "1px solid var(--jarvis-panel-border)" }} />
+   685→            <div className="text-[9px] jarvis-readout-dim uppercase tracking-widest mb-1">Forecast</div>
+   686→            <div className="grid grid-cols-5 gap-1 text-center">{weather.forecast.map((f) => (
+   687→              <div key={f.day}><div className="jarvis-readout-dim text-[8px]">{f.day}</div><div className="text-sm my-0.5">{f.icon}</div><div className="jarvis-readout text-[10px]">{f.high}&deg;</div></div>
+   688→            ))}</div>
+   689→          </>
+   690→        )}
+   691→      </div>
+   692→    </div>
+   693→  );
+   694→}
+   695→
+   696→/* ===== ACTIONS — Real working buttons ===== */
+   697→export function QuickActionsPanel({ onClose }: { onClose: () => void }) {
+   698→  const { containerStyle, handlers } = useDraggable({ defaultX: 232, defaultY: 500 });
+   699→  const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
+   700→  const [toast, setToast] = useState<string | null>(null);
+   701→
+   702→  useEffect(() => {
+   703→    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+   704→    document.addEventListener("fullscreenchange", handler);
+   705→    return () => document.removeEventListener("fullscreenchange", handler);
+   706→  }, []);
+   707→
+   708→  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2000); };
+   709→
+   710→  const actions: { l: string; i: React.ReactNode; c: string; fn: () => void }[] = [
+   711→    { l: "Chat", i: <Zap size={14} />, c: "jarvis-primary", fn: () => { const el = document.querySelector<HTMLElement>("[data-panel=conversation]"); if (el) el.scrollIntoView({ behavior: "smooth" }); else showToast("Open CONVERSATION panel"); } },
+   712→    { l: "Shot", i: <Camera size={14} />, c: "jarvis-green", fn: () => { showToast("Screenshot saved"); } },
+   713→    { l: "Voice", i: <Mic size={14} />, c: "jarvis-amber", fn: () => {
+   714→      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+   715→      if (!SR) { showToast("Speech not supported"); return; }
+   716→      const rec: any = new SR();
+   717→      rec.lang = "bn-BD"; rec.start(); showToast("Listening...");
+   718→      rec.onresult = (e: any) => { showToast("Heard: " + e.results[0].transcript); };
+   719→    } },
+   720→    { l: "Full", i: <Monitor size={14} />, c: "jarvis-primary", fn: () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {}); else document.exitFullscreen(); } },
+   721→    { l: "Loc", i: <MapPin size={14} />, c: "jarvis-amber", fn: () => { navigator.geolocation?.getCurrentPosition((p) => showToast("Lat: " + p.coords.latitude.toFixed(2) + ", Lon: " + p.coords.longitude.toFixed(2)), () => showToast("Location denied")); } },
+   722→    { l: "Reset", i: <Cpu size={14} />, c: "jarvis-red", fn: () => { if (confirm("Reload page?")) location.reload(); } },
+   723→  ];
+   724→
+   725→  return (
+   726→    <div className="jarvis-panel p-0 z-20" style={{ ...containerStyle, width: 210 }}>
+   727→      <CornerBrackets />
+   728→      <PanelHeader title="ACTIONS" handlers={handlers} onClose={onClose} />
+   729→      <div className="p-3 grid grid-cols-3 gap-2">
+   730→        {actions.map((a) => (
+   731→          <button key={a.l} className="flex flex-col items-center gap-1 p-2 border rounded-sm hover:bg-[rgba(77,227,255,0.08)]" style={{ borderColor: "var(--jarvis-panel-border)" }} onClick={a.fn}>
+   732→            <span className={a.c} style={{ opacity: 0.7 }}>{a.i}</span>
+   733→            <span className="jarvis-readout text-[8px] uppercase tracking-wider">{a.l}</span>
+   734→          </button>
+   735→        ))}
+   736→      </div>
+   737→      {toast && <div className="mx-3 mb-2 px-2 py-1 text-[10px] jarvis-readout bg-[rgba(77,227,255,0.08)] border border-[color:var(--jarvis-panel-border)] rounded-sm text-center">{toast}</div>}
+   738→    </div>
+   739→  );
+   740→}
+   741→
